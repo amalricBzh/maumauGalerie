@@ -5,6 +5,8 @@ define("VIGNETTE_FOLDER", "vignettes");
 define("VIGNETTE_WIDTH", 150);
 define("VIGNETTE_HEIGHT", floor(VIGNETTE_WIDTH * 3 / 4));
 
+ob_start();
+
 // Default action
 $action = 'form';
 if (file_exists(CONFIG_FILENAME)){
@@ -30,35 +32,33 @@ switch($action){
     break;
     
     case 'reset':
-        echo "Réinitialisation de la galerie...";
         @unlink(CONFIG_FILENAME);
-        header('Location: '.getScriptUrl());
+	    header('Refresh: 2;URL='.getScriptUrl());
     break;
     
     default:
         // Si on vient du formulaire, on le vérifie
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             generateConfigFile();
-            header('Location: '.getScriptUrl());
+            header('Refresh: 2;URL='.getScriptUrl());
         }
         // Sinon, on affiche le formulaire
         displayFormGeneration();
     break;
 }
 
+ob_end_flush();
+
 function generateGallery($config)
 {
-    $todoNb = count($config['todo']);
-    $doneNb = count($config['done']);
-    echo "Génération ".($doneNb).'/'.($doneNb+ $todoNb)."..." ;
     $startTime = microtime(true);
-    // On traite 3 secondes d'images
-    while(microtime(true) - $startTime < 1 && count($config['todo']) > 0) {
+    // On traite au moins 3 secondes d'images
+    while(microtime(true) - $startTime < 3 && count($config['todo']) > 0) {
         $filename = $config['todo'][0] ;
         // Création de la vignette
         $im = @imagecreatefromjpeg($filename);
         if (!$im) {
-            echo "Erreur : " . $filename . " n'est pas un fichier jpg lisible." ;
+            echo "Erreur : " . $filename . " n'est pas un fichier jpg lisible." ; die;
         } else {
             $width = imagesx($im);
             $newWidth = $width ;
@@ -82,7 +82,7 @@ function generateGallery($config)
                 "width" => $width,
                 "height" => $height,
                 "size" => formatSizeUnits(filesize($filename)),
-                "exif" => @exif_read_data($filename, 'FILE', true, false)
+                "exif" => @exif_read_data($filename, 'FILE', true, false)['FILE']
             ];
             unset($config['todo'][0]);
             // Reindex keys
@@ -93,7 +93,10 @@ function generateGallery($config)
         }
     }
     // Reload
-    header('Location: '.getScriptUrl());
+	header('Refresh: 2;URL='.getScriptUrl());
+	$todoNb = count($config['todo']);
+	$doneNb = count($config['done']);
+	echo "Génération ".($doneNb).'/'.($doneNb+ $todoNb)."..." ;
 }
 
 
@@ -119,7 +122,7 @@ function generateConfigFile()
         "done"       => [],
     ];
     // Read the images
-    foreach (glob("*.jpg") as $filename) {
+    foreach (glob("*.[jJ][pP][gG]") as $filename) {
         $config['todo'][] = $filename ;
     }
     // Write the config file
@@ -128,9 +131,6 @@ function generateConfigFile()
 
 function writeConfigFile($config)
 {
-    //echo '<pre>';
-    //var_dump(json_encode($config, JSON_PRETTY_PRINT));
-    
     file_put_contents(CONFIG_FILENAME, json_encode($config, JSON_PRETTY_PRINT));
 }
 
@@ -189,8 +189,6 @@ function displayGallery($config)
     
     displayFooter();
 }
-
-
 
 
 
