@@ -56,46 +56,80 @@ ob_end_flush();
 /***** Action functions *****/
 function generateGallery($config)
 {
+    $reloadDuration = 1 ; // En cas d'erreur, on prolongera ce délai
+    $errorMessage = '';
     $startTime = microtime(true);
     // On traite au moins 2 secondes d'images
     while(microtime(true) - $startTime < 2 && count($config['todo']) > 0) {
         $filename = $config['todo'][0] ;
         // Création de la vignette
-        $im = @imagecreatefromjpeg($filename);
-        if (!$im) {
-            echo "Erreur : " . $filename . " n'est pas un fichier jpg lisible." ; die;
-        } else {
-            $width = imagesx($im);
-            $newWidth = $width ;
-            $height = imagesy($im);
-            $newHeight = $height ;
-            if ($newWidth > $config['thumbSize']){
-                $newWidth = $config['thumbSize'] ;
-                $newHeight = floor($height * $config['thumbSize'] / $width);
-            }
-            if ($newHeight > $config['thumbSize']){
-                $newHeight = $config['thumbSize'] ;
-                $newWidth = floor($width * $config['thumbSize'] / $height);
-            }
-            $vignette = imagecreatetruecolor($newWidth, $newHeight);
-            // Copy source to resized image
-            imagecopyresampled($vignette, $im, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-            imagejpeg($vignette, VIGNETTE_FOLDER. '/'.$filename);
-            // Move image form todo list to done list, with more information
-            $image = [
-                "filename" => $filename,
-                "width" => $width,
-                "height" => $height,
-                "size" => formatSizeUnits(filesize($filename)),
-                "exif" => @exif_read_data($filename, 'FILE', true, false)['FILE']
-            ];
+        $sourceImage = @imagecreatefromjpeg($filename);
+        if (!$sourceImage) {
+            $errorMessage .= "<p>Erreur : " . $filename . " n'est pas un fichier jpg lisible.</p>";
+            $reloadDuration = 10 ;
+            // Retire le fichier des todo et le met dans les erreurs
             unset($config['todo'][0]);
             // Reindex keys
             $config['todo'] = array_values($config['todo']);
-            $config['done'][] = $image ;
-            $config['done'] = array_values($config['done']);
+            $config['failed'][] = $image ;
             writeConfigFile($config);
+            continue ;
         }
+        // Exif infos
+        $exifDatas = @exif_read_data($filename, 'FILE', true, false);
+        $exif = [
+            'orientation' => 1
+        ];
+        if ($exifDatas !== false) {
+            if (!empty($exifDatas['IFD0']['Orientation'])){
+                $exif['orientation'] = $exifDatas['IFD0']['Orientation'];
+            }
+        }
+        // Init création vignette
+        $width = imagesx($sourceImage);
+        $newWidth = $width ;
+        $height = imagesy($sourceImage);
+        $newHeight = $height ;
+        if ($newWidth > $config['thumbSize']){
+            $newWidth = $config['thumbSize'] ;
+            $newHeight = floor($height * $config['thumbSize'] / $width);
+        }
+        if ($newHeight > $config['thumbSize']){
+            $newHeight = $config['thumbSize'] ;
+            $newWidth = floor($width * $config['thumbSize'] / $height);
+        }
+        $vignette = imagecreatetruecolor($newWidth, $newHeight);
+        // Copie source dans la vignette avec changement de la taille
+        imagecopyresampled($vignette, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+        // Tourne la vignette
+        switch($exif['orientation']) {
+            case 3:
+                $vignette = imagerotate($vignette, 180, 0);
+                break;
+            case 6:
+                $vignette = imagerotate($vignette, 270, 0);
+                break;
+            case 8:
+                $vignette = imagerotate($vignette, 90, 0);
+                break;
+        }
+        
+        imagejpeg($vignette, VIGNETTE_FOLDER. '/'.$filename);
+        
+        // Move image form todo list to done list, with more information
+        $image = [
+            "filename" => $filename,
+            "width" => $width,
+            "height" => $height,
+            "size" => formatSizeUnits(filesize($filename)),
+            "exif" => $exif
+        ];
+        unset($config['todo'][0]);
+        // Reindex keys
+        $config['todo'] = array_values($config['todo']);
+        $config['done'][] = $image ;
+        $config['done'] = array_values($config['done']);
+        writeConfigFile($config);
     }
     // Display page
 	$todoNb = count($config['todo']);
@@ -106,16 +140,18 @@ function generateGallery($config)
         <p>Vignettes <?= $doneNb ?>/<?= $doneNb+ $todoNb ?> faites.</p>
         <p>Veuillez patienter...</p>
     <?php 
+    echo $errorMessage ;
     displayFooter();
     // Reload
-	header('Refresh: 1;URL='.getScriptUrl());
+	header('Refresh: '.$reloadDuration.';URL='.getScriptUrl());
 }
 
 function generateConfigFile()
 {
+    $errorMessage = '';
     // Création du répertoires
     if (!is_dir(VIGNETTE_FOLDER) && !mkdir(VIGNETTE_FOLDER, 0777)) {
-        die('Echec lors de la création du répertoire des vignettes...');
+        $errorMessage .='<p>Echec lors de la création du répertoire des vignettes...</p>';
     }
     
     $config = [
@@ -124,6 +160,7 @@ function generateConfigFile()
         "thumbSize"   => intval($_POST['thumbSize']) >= 50 ? intval($_POST['thumbSize']): VIGNETTE_WIDTH,
         "todo"       => [],
         "done"       => [],
+        "failed"     => [],
     ];
     // Read the images
     foreach (glob("*.[jJ][pP][gG]") as $filename) {
@@ -132,13 +169,17 @@ function generateConfigFile()
     // Write the config file
     writeConfigFile($config);
     
-    header('Refresh: 2;URL='.getScriptUrl());
     displayHeader($config['title'], $config['subTitle']);
     ?>
         <h1>Génération de la configuration</h1>
         <p>Veuillez patienter...</p>
     <?php 
+    echo $errorMessage ;
     displayFooter();
+    // Si pas d'erreur, recharge la page dans 2s
+    if (strlen($errorMessage) === 0){
+        header('Refresh: 2;URL='.getScriptUrl());
+    }
 }
 
 function writeConfigFile($config)
@@ -146,6 +187,14 @@ function writeConfigFile($config)
     file_put_contents(CONFIG_FILENAME, json_encode($config, JSON_PRETTY_PRINT));
 }
 /****** Utils ****/
+// var_dump die, pour debug
+function vdd($var)
+{
+    echo '<pre>';
+    var_dump($var);
+    die;
+}
+
 function getScriptUrl()
 {
     return strtok($_SERVER["REQUEST_URI"],'?');
@@ -186,7 +235,7 @@ function rrmdir($dir) {
 
 /***** "Templates" *****/
 
-function displayFormGeneration($params = [])
+function displayFormGeneration()
 {
     $titre = "Génération d'un nouvel album" ;
     $sousTitre = "Veuillez remplir le formulaire";
