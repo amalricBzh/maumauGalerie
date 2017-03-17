@@ -14,6 +14,6 @@ Un fichier unique qui génère et affiche une galerie d'images.
 Supprimez le répertoire `vignettes` créé par maumauGalerie, et réouvrez l'URL de la galerie.
 
 ## Y'a des évolutions prévues ?
-La prochaine version devrait prendre en compte l'orientation de l'image pour générer la vignette.
+Peut-être la possibilité de changer la couleur du bandeau par exemple.
 Suggestions bienvenues.
 
