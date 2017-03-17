@@ -1,9 +1,8 @@
 <?php
 
-define("CONFIG_FILENAME", "config.json");
 define("VIGNETTE_FOLDER", "vignettes");
 define("VIGNETTE_WIDTH", 150);
-define("VIGNETTE_HEIGHT", floor(VIGNETTE_WIDTH * 3 / 4));
+define("CONFIG_FILENAME", VIGNETTE_FOLDER . "/config.json");
 
 ob_start();
 
@@ -23,7 +22,15 @@ if (isset($_GET['action'])){
     $action = $_GET['action'];
 }
 
+// Si on vient du formulaire, on le vérifie
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action="generateConfigFile" ;
+}
+
 switch($action){
+    case 'generateConfigFile':
+        generateConfigFile();
+    break;
     case 'generate':
         generateGallery($config);
     break;
@@ -32,16 +39,12 @@ switch($action){
     break;
     
     case 'reset':
-        @unlink(CONFIG_FILENAME);
-	    header('Refresh: 2;URL='.getScriptUrl());
+        // Efface le répertoire des vignettes (avec la config)
+        @rrmdir(VIGNETTE_FOLDER);
+	    header('Location:'.getScriptUrl());
     break;
     
     default:
-        // Si on vient du formulaire, on le vérifie
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            generateConfigFile();
-            header('Refresh: 2;URL='.getScriptUrl());
-        }
         // Sinon, on affiche le formulaire
         displayFormGeneration();
     break;
@@ -49,11 +52,13 @@ switch($action){
 
 ob_end_flush();
 
+
+/***** Action functions *****/
 function generateGallery($config)
 {
     $startTime = microtime(true);
-    // On traite au moins 3 secondes d'images
-    while(microtime(true) - $startTime < 3 && count($config['todo']) > 0) {
+    // On traite au moins 2 secondes d'images
+    while(microtime(true) - $startTime < 2 && count($config['todo']) > 0) {
         $filename = $config['todo'][0] ;
         // Création de la vignette
         $im = @imagecreatefromjpeg($filename);
@@ -64,13 +69,13 @@ function generateGallery($config)
             $newWidth = $width ;
             $height = imagesy($im);
             $newHeight = $height ;
-            if ($newWidth > VIGNETTE_WIDTH){
-                $newWidth = VIGNETTE_WIDTH ;
-                $newHeight = floor($height * VIGNETTE_WIDTH / $width);
+            if ($newWidth > $config['thumbSize']){
+                $newWidth = $config['thumbSize'] ;
+                $newHeight = floor($height * $config['thumbSize'] / $width);
             }
-            if ($newHeight > VIGNETTE_HEIGHT){
-                $newHeight = VIGNETTE_HEIGHT ;
-                $newWidth = floor($width * VIGNETTE_HEIGHT / $height);
+            if ($newHeight > $config['thumbSize']){
+                $newHeight = $config['thumbSize'] ;
+                $newWidth = floor($width * $config['thumbSize'] / $height);
             }
             $vignette = imagecreatetruecolor($newWidth, $newHeight);
             // Copy source to resized image
@@ -92,17 +97,18 @@ function generateGallery($config)
             writeConfigFile($config);
         }
     }
-    // Reload
-	header('Refresh: 2;URL='.getScriptUrl());
+    // Display page
 	$todoNb = count($config['todo']);
 	$doneNb = count($config['done']);
-	echo "Génération ".($doneNb).'/'.($doneNb+ $todoNb)."..." ;
-}
-
-
-function getScriptUrl()
-{
-    return strtok($_SERVER["REQUEST_URI"],'?');
+    displayHeader($config['title'], $config['subTitle']);
+    ?>
+        <h1>Génération des vignettes</h1>
+        <p>Vignettes <?= $doneNb ?>/<?= $doneNb+ $todoNb ?> faites.</p>
+        <p>Veuillez patienter...</p>
+    <?php 
+    displayFooter();
+    // Reload
+	header('Refresh: 1;URL='.getScriptUrl());
 }
 
 function generateConfigFile()
@@ -111,13 +117,11 @@ function generateConfigFile()
     if (!is_dir(VIGNETTE_FOLDER) && !mkdir(VIGNETTE_FOLDER, 0777)) {
         die('Echec lors de la création du répertoire des vignettes...');
     }
-    if (!is_dir(VIGNETTE_FOLDER) && !mkdir('tmp', 0777)) {
-        die('Echec lors de la création du répertoire temporaire...');
-    }
     
     $config = [
         "title"      => $_POST['title'],
         "subTitle"   => $_POST['subTitle'],
+        "thumbSize"   => intval($_POST['thumbSize']) >= 50 ? intval($_POST['thumbSize']): VIGNETTE_WIDTH,
         "todo"       => [],
         "done"       => [],
     ];
@@ -127,11 +131,24 @@ function generateConfigFile()
     }
     // Write the config file
     writeConfigFile($config);
+    
+    header('Refresh: 2;URL='.getScriptUrl());
+    displayHeader($config['title'], $config['subTitle']);
+    ?>
+        <h1>Génération de la configuration</h1>
+        <p>Veuillez patienter...</p>
+    <?php 
+    displayFooter();
 }
 
 function writeConfigFile($config)
 {
     file_put_contents(CONFIG_FILENAME, json_encode($config, JSON_PRETTY_PRINT));
+}
+/****** Utils ****/
+function getScriptUrl()
+{
+    return strtok($_SERVER["REQUEST_URI"],'?');
 }
 
 function formatSizeUnits($size)
@@ -151,6 +168,24 @@ function formatSizeUnits($size)
     return $bytes;
 }
 
+function rrmdir($dir) { 
+   if (is_dir($dir)) { 
+     $objects = scandir($dir); 
+     foreach ($objects as $object) { 
+       if ($object != "." && $object != "..") { 
+         if (is_dir($dir."/".$object))
+           rrmdir($dir."/".$object);
+         else
+           unlink($dir."/".$object); 
+       } 
+     }
+     rmdir($dir); 
+   } 
+ }
+
+
+/***** "Templates" *****/
+
 function displayFormGeneration($params = [])
 {
     $titre = "Génération d'un nouvel album" ;
@@ -165,6 +200,10 @@ function displayFormGeneration($params = [])
   <div class="form-group">
     <label for="subTitle">Description</label>
     <input type="text" name="subTitle" class="form-control" id="subTitle" placeholder="Une courte description de votre album" pattern=".{5,}" required title="5 caractères minimum">
+  </div>
+  <div class="form-group">
+    <label for="thumbSize">Taille des vignettes (en pixels)</label>
+    <input type="number" name="thumbSize" class="form-control" id="thumbSize" placeholder="<?= VIGNETTE_WIDTH ?>" min="50" max="500" required title="Un nombre entre 50 et 500" value="<?= VIGNETTE_WIDTH ?>">
   </div>
   <button type="submit" class="btn btn-default">Générer</button>
 </form>
@@ -189,8 +228,6 @@ function displayGallery($config)
     
     displayFooter();
 }
-
-
 
 function displayHeader($titre = "Album", $sousTitre = "généré automatiquement")
 {
@@ -310,6 +347,10 @@ div.imageInfos {
 footer .container p {
     text-align: center;
     text-overflow: fade(10px);
+}
+
+input[type=\"number\"] {
+    width: 100px;
 }
 
 </style>";
