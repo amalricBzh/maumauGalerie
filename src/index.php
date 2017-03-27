@@ -149,7 +149,7 @@ function generateGallery($config)
 function generateConfigFile()
 {
     $errorMessage = '';
-    // Création du répertoires
+    // Création du répertoire
     if (!is_dir(VIGNETTE_FOLDER) && !mkdir(VIGNETTE_FOLDER, 0777)) {
         $errorMessage .='<p>Echec lors de la création du répertoire des vignettes...</p>';
     }
