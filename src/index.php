@@ -3,6 +3,8 @@
 define("VIGNETTE_FOLDER", "vignettes");
 define("VIGNETTE_WIDTH", 150);
 define("CONFIG_FILENAME", VIGNETTE_FOLDER . "/config.json");
+define("ALLEGEE_WIDTH", 900);
+define("ALLEGEE_RATE", 70);
 
 ob_start();
 
@@ -20,6 +22,11 @@ if (file_exists(CONFIG_FILENAME)){
 // If action from url, use it
 if (isset($_GET['action'])){
     $action = $_GET['action'];
+}
+
+// Image allégée
+if (isset($_GET['allegee'])){
+    $action = 'allegee';
 }
 
 // Si on vient du formulaire, on le vérifie
@@ -42,6 +49,10 @@ switch($action){
         // Efface le répertoire des vignettes (avec la config)
         @rrmdir(VIGNETTE_FOLDER);
 	    header('Location:'.getScriptUrl());
+    break;
+    
+    case 'allegee':
+        imageAllegee($config, $_GET['allegee']);
     break;
     
     default:
@@ -144,6 +155,68 @@ function generateGallery($config)
     displayFooter();
     // Reload
 	header('Refresh: '.$reloadDuration.';URL='.getScriptUrl());
+}
+
+function imageAllegee($config, $number)
+{
+    // Si l'image existe déjà
+    if (isset($config['done'][$number]['allegee'])){
+        header('Location:'.$config['done'][$number]['allegee']);
+        return;
+    }
+    
+    $filename = $config['done'][$number]['filename'];
+    // Ouverture de l'image
+    $sourceImage = @imagecreatefromjpeg($filename);
+
+    // Exif infos
+    $exifDatas = @exif_read_data($filename, 'FILE', true, false);
+    $exif = ['orientation' => 1];
+    if ($exifDatas !== false) {
+        if (!empty($exifDatas['IFD0']['Orientation'])){
+            $exif['orientation'] = $exifDatas['IFD0']['Orientation'];
+        }
+    }
+    // Init création image allégée
+    $width = imagesx($sourceImage);
+    $newWidth = $width ;
+    $height = imagesy($sourceImage);
+    $newHeight = $height ;
+    if ($newWidth > ALLEGEE_WIDTH){
+        $newWidth = ALLEGEE_WIDTH ;
+        $newHeight = floor($height * ALLEGEE_WIDTH / $width);
+    }
+    if ($newHeight > ALLEGEE_WIDTH){
+        $newHeight = ALLEGEE_WIDTH ;
+        $newWidth = floor($width * ALLEGEE_WIDTH / $height);
+    }
+    $allegee = imagecreatetruecolor($newWidth, $newHeight);
+    // Copie source dans l'image avec changement de la taille
+    imagecopyresampled($allegee, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+    // Tourne l'image si besoin
+    switch($exif['orientation']) {
+        case 3:
+            $allegee = imagerotate($allegee, 180, 0);
+            break;
+        case 6:
+            $allegee = imagerotate($allegee, 270, 0);
+            break;
+        case 8:
+            $allegee = imagerotate($allegee, 90, 0);
+            break;
+    }
+    $filename = VIGNETTE_FOLDER . '/img_allegee_'. $number. '.jpg';
+    imagejpeg($allegee, $filename, ALLEGEE_RATE);
+    $config['done'][$number]['allegee'] = $filename;
+    writeConfigFile($config);
+    displayHeader($config['title'], $config['subTitle']);
+    ?>
+        <h1>Génération de l'image</h1>
+        <p>Veuillez patienter...</p>
+    <?php 
+    displayFooter();
+    // Redirige sur l'image
+    header('Location:'.$filename);
 }
 
 function generateConfigFile()
@@ -264,10 +337,14 @@ function displayGallery($config)
 {
     displayHeader($config['title'], $config['subTitle']);
     echo '<div class="galerie">';
-    foreach($config['done'] as $image){
+    foreach($config['done'] as $key => $image){
         ?>
-        <div>
-            <a download="<?= $image['filename'] ?>" href="<?= $image['filename'] ?>" target="_blank"><img src="<?= VIGNETTE_FOLDER.'/'.$image['filename'] ?>"></a>
+        <div class="imageContainer">
+            <img src="<?= VIGNETTE_FOLDER.'/'.$image['filename'] ?>">
+            <div class="icon">
+                <a href="?allegee=<?= $key ?>" target="_blank" title="Voir l'image allégée"><i class="fa fa-picture-o fa-2x" aria-hidden="true"></i></a>
+                <a download="<?= $image['filename'] ?>" href="<?= $image['filename'] ?>" target="_blank" title="Télécharger l'image originale"><i class="fa fa-download fa-2x" aria-hidden="true"></i></a>
+            </div>
             <div class="imageInfos"><?= $image['filename'] ?><br />
             <?= $image['width'] ?>x<?= $image['height'] ?>, <?= $image['size'] ?></div>
         </div>
@@ -293,6 +370,7 @@ function displayHeader($titre = "Album", $sousTitre = "généré automatiquement
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
         <!-- Bootstrap : Optional theme -->
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" crossorigin="anonymous">
         <?php
             echo customCss();
         ?>
@@ -313,7 +391,7 @@ function displayFooter()
         </div>
         <footer class="footer">
             <div class="container">
-                <p>Maumau Galerie 0.1, 2017</p>
+                <p>Maumau Galerie 0.2, mars 2017</p>
             </div>
         </footer>
         <!-- jQuery -->
@@ -384,6 +462,7 @@ footer {
     flex-direction: column;
     justify-content: center;
     text-align: center;
+    position: relative;
 }
 div.imageInfos {
     color: #888;
@@ -400,6 +479,35 @@ footer .container p {
 
 input[type=\"number\"] {
     width: 100px;
+}
+
+div.icon {
+    display: none;
+    background-color: rgba(225,230,250,0.55);
+    border-radius : 10px;
+    
+}
+
+div.imageContainer {
+    margin: 5px;
+}
+
+div.imageContainer:hover div.icon {
+    display: flex;
+    flex-direction: row;
+    color: #555;
+    border: none;
+    padding: 5px;
+    top: 5px;
+    left: 5px;
+    position: absolute;
+    z-index: 5;
+}
+
+div.icon a {
+    color: #555;
+    text-decoration: none;
+    padding: 0 5px ;
 }
 
 </style>";
