@@ -4,7 +4,7 @@ define("VIGNETTE_FOLDER", "vignettes");
 define("VIGNETTE_WIDTH", 150);
 define("CONFIG_FILENAME", VIGNETTE_FOLDER . "/config.json");
 define("ALLEGEE_WIDTH", 900);
-define("ALLEGEE_RATE", 70);
+define("JPEG_RATE", 70);
 
 ob_start();
 
@@ -22,11 +22,6 @@ if (file_exists(CONFIG_FILENAME)){
 // If action from url, use it
 if (isset($_GET['action'])){
     $action = $_GET['action'];
-}
-
-// Image allégée
-if (isset($_GET['allegee'])){
-    $action = 'allegee';
 }
 
 // Si on vient du formulaire, on le vérifie
@@ -51,10 +46,6 @@ switch($action){
 	    header('Location:'.getScriptUrl());
     break;
     
-    case 'allegee':
-        imageAllegee($config, $_GET['allegee']);
-    break;
-    
     default:
         // Sinon, on affiche le formulaire
         displayFormGeneration();
@@ -72,74 +63,34 @@ function generateGallery($config)
     $startTime = microtime(true);
     // On traite au moins 2 secondes d'images
     while(microtime(true) - $startTime < 2 && count($config['todo']) > 0) {
-        $filename = $config['todo'][0] ;
         // Création de la vignette
-        $sourceImage = @imagecreatefromjpeg($filename);
-        if (!$sourceImage) {
-            $errorMessage .= "<p>Erreur : " . $filename . " n'est pas un fichier jpg lisible.</p>";
+        $index = count($config['done']);
+        $filename = $config['todo'][0];
+        $result = createImage($filename, $config['thumbSize'], VIGNETTE_FOLDER. '/vignette_'.$index.'.jpg');
+        if (isset($result['error'])){
+            $errorMessage .= $result['error'];
             $reloadDuration = 10 ;
-            // Retire le fichier des todo et le met dans les erreurs
-            unset($config['todo'][0]);
-            // Reindex keys
-            $config['todo'] = array_values($config['todo']);
-            $config['failed'][] = $image ;
-            writeConfigFile($config);
-            continue ;
-        }
-        // Exif infos
-        $exifDatas = @exif_read_data($filename, 'FILE', true, false);
-        $exif = [
-            'orientation' => 1
-        ];
-        if ($exifDatas !== false) {
-            if (!empty($exifDatas['IFD0']['Orientation'])){
-                $exif['orientation'] = $exifDatas['IFD0']['Orientation'];
-            }
-        }
-        // Init création vignette
-        $width = imagesx($sourceImage);
-        $newWidth = $width ;
-        $height = imagesy($sourceImage);
-        $newHeight = $height ;
-        if ($newWidth > $config['thumbSize']){
-            $newWidth = $config['thumbSize'] ;
-            $newHeight = floor($height * $config['thumbSize'] / $width);
-        }
-        if ($newHeight > $config['thumbSize']){
-            $newHeight = $config['thumbSize'] ;
-            $newWidth = floor($width * $config['thumbSize'] / $height);
-        }
-        $vignette = imagecreatetruecolor($newWidth, $newHeight);
-        // Copie source dans la vignette avec changement de la taille
-        imagecopyresampled($vignette, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-        // Tourne la vignette
-        switch($exif['orientation']) {
-            case 3:
-                $vignette = imagerotate($vignette, 180, 0);
-                break;
-            case 6:
-                $vignette = imagerotate($vignette, 270, 0);
-                break;
-            case 8:
-                $vignette = imagerotate($vignette, 90, 0);
-                break;
+            $config['failed'][] = $filename ;
+        } else {
+            list($width, $height) = getimagesize($filename);
+            $config['done'][$index] = [
+                'filename' => $filename,
+                'width' => $width,
+                'height' => $height,
+                'filesize' => formatSizeUnits(filesize($filename)),
+                'vignette' => $result
+            ] ;
+            // Création de l'image allégée
+            $result = createImage($config['todo'][0], ALLEGEE_WIDTH, VIGNETTE_FOLDER. '/allegee_'.$index.'.jpg');
+            $config['done'][$index]['allegee'] = $result ;
         }
         
-        imagejpeg($vignette, VIGNETTE_FOLDER. '/'.$filename);
         
-        // Move image form todo list to done list, with more information
-        $image = [
-            "filename" => $filename,
-            "width" => $width,
-            "height" => $height,
-            "size" => formatSizeUnits(filesize($filename)),
-            "exif" => $exif
-        ];
+        // Retire le fichier des todo et le met dans les erreurs
         unset($config['todo'][0]);
         // Reindex keys
         $config['todo'] = array_values($config['todo']);
-        $config['done'][] = $image ;
-        $config['done'] = array_values($config['done']);
+
         writeConfigFile($config);
     }
     // Display page
@@ -157,66 +108,62 @@ function generateGallery($config)
 	header('Refresh: '.$reloadDuration.';URL='.getScriptUrl());
 }
 
-function imageAllegee($config, $number)
+function createImage($source, $size, $destination)
 {
-    // Si l'image existe déjà
-    if (isset($config['done'][$number]['allegee'])){
-        header('Location:'.$config['done'][$number]['allegee']);
-        return;
+    // Création de la vignette
+    $sourceImage = @imagecreatefromjpeg($source);
+    if (!$sourceImage) {
+        $errorMessage = "<p>Erreur : " . $source . " n'est pas un fichier jpg lisible.</p>";
+        return ['error' => $errorMessage];
+        
     }
-    
-    $filename = $config['done'][$number]['filename'];
-    // Ouverture de l'image
-    $sourceImage = @imagecreatefromjpeg($filename);
-
     // Exif infos
-    $exifDatas = @exif_read_data($filename, 'FILE', true, false);
-    $exif = ['orientation' => 1];
+    $exifDatas = @exif_read_data($source, 'FILE', true, false);
+    $exif = [
+        'orientation' => 1
+    ];
     if ($exifDatas !== false) {
         if (!empty($exifDatas['IFD0']['Orientation'])){
             $exif['orientation'] = $exifDatas['IFD0']['Orientation'];
         }
     }
-    // Init création image allégée
+    // Init création image
     $width = imagesx($sourceImage);
     $newWidth = $width ;
     $height = imagesy($sourceImage);
     $newHeight = $height ;
-    if ($newWidth > ALLEGEE_WIDTH){
-        $newWidth = ALLEGEE_WIDTH ;
-        $newHeight = floor($height * ALLEGEE_WIDTH / $width);
+    if ($newWidth > $size){
+        $newWidth = $size ;
+        $newHeight = floor($height * $size / $width);
     }
-    if ($newHeight > ALLEGEE_WIDTH){
-        $newHeight = ALLEGEE_WIDTH ;
-        $newWidth = floor($width * ALLEGEE_WIDTH / $height);
+    if ($newHeight > $size){
+        $newHeight = $size ;
+        $newWidth = floor($width * $size / $height);
     }
-    $allegee = imagecreatetruecolor($newWidth, $newHeight);
-    // Copie source dans l'image avec changement de la taille
-    imagecopyresampled($allegee, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-    // Tourne l'image si besoin
+    $vignette = imagecreatetruecolor($newWidth, $newHeight);
+    // Copie source dans la vignette avec changement de la taille
+    imagecopyresampled($vignette, $sourceImage, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+    // Tourne la vignette
     switch($exif['orientation']) {
         case 3:
-            $allegee = imagerotate($allegee, 180, 0);
+            $vignette = imagerotate($vignette, 180, 0);
             break;
         case 6:
-            $allegee = imagerotate($allegee, 270, 0);
+            $vignette = imagerotate($vignette, 270, 0);
             break;
         case 8:
-            $allegee = imagerotate($allegee, 90, 0);
+            $vignette = imagerotate($vignette, 90, 0);
             break;
     }
-    $filename = VIGNETTE_FOLDER . '/img_allegee_'. $number. '.jpg';
-    imagejpeg($allegee, $filename, ALLEGEE_RATE);
-    $config['done'][$number]['allegee'] = $filename;
-    writeConfigFile($config);
-    displayHeader($config['title'], $config['subTitle']);
-    ?>
-        <h1>Génération de l'image</h1>
-        <p>Veuillez patienter...</p>
-    <?php 
-    displayFooter();
-    // Redirige sur l'image
-    header('Location:'.$filename);
+    
+    imagejpeg($vignette, $destination);
+    
+    return [
+        "filename" => $destination,
+        "width" => $newWidth,
+        "height" => $newHeight,
+        "exif" => $exif
+    ];
 }
 
 function generateConfigFile()
@@ -340,13 +287,13 @@ function displayGallery($config)
     foreach($config['done'] as $key => $image){
         ?>
         <div class="imageContainer">
-            <img src="<?= VIGNETTE_FOLDER.'/'.$image['filename'] ?>">
+            <img src="<?= $image['vignette']['filename'] ?>" width="<?= $image['vignette']['width'] ?>" height="<?= $image['vignette']['height'] ?>">
             <div class="icon">
-                <a href="?allegee=<?= $key ?>" target="_blank" title="Voir l'image allégée"><i class="fa fa-picture-o fa-2x" aria-hidden="true"></i></a>
+                <a href="<?= $image['allegee']['filename'] ?>" target="_blank" title="Maumau galerie - <?= $config['title']. ' - ' .$config['subTitle'] ?>" data-fancybox="gallery" data-width="<?= $image['allegee']['width'] ?>" data-height="<?= $image['allegee']['height'] ?>"><i class="fa fa-picture-o fa-2x" aria-hidden="true"></i></a>
                 <a download="<?= $image['filename'] ?>" href="<?= $image['filename'] ?>" target="_blank" title="Télécharger l'image originale"><i class="fa fa-download fa-2x" aria-hidden="true"></i></a>
             </div>
             <div class="imageInfos"><?= $image['filename'] ?><br />
-            <?= $image['width'] ?>x<?= $image['height'] ?>, <?= $image['size'] ?></div>
+            <?= $image['width'] ?>x<?= $image['height'] ?>, <?= $image['filesize'] ?></div>
         </div>
         <?php
     }
@@ -371,6 +318,7 @@ function displayHeader($titre = "Album", $sousTitre = "généré automatiquement
         <!-- Bootstrap : Optional theme -->
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" crossorigin="anonymous">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.0.47/jquery.fancybox.min.css" crossorigin="anonymous">
         <?php
             echo customCss();
         ?>
@@ -398,6 +346,8 @@ function displayFooter()
         <script src="https://code.jquery.com/jquery-3.1.1.min.js" integrity="sha256-hVVnYaiADRTO2PzUGmuLJr8BLUSjGIZsDYGmIJLv2b8=" crossorigin="anonymous"></script>
         <!-- Bootstrap : Latest compiled and minified JavaScript -->
         <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+        <!-- Fancybox -->
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.0.47/jquery.fancybox.min.js"></script>
     </body>
     </html>
     <?php
