@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Les expressions "if ... else ..." nécessitent des "else", sinon je ne les mettrais pas.
+ * C'est donc une bonne pratique de codage, je supprime ces warnings.
+ * @SuppressWarnings(PHPMD.ElseExpression)
+ */
+
 define("VIGNETTE_FOLDER", "vignettes");
 define("VIGNETTE_WIDTH", 150);
 define("CONFIG_FILENAME", VIGNETTE_FOLDER . "/config.json");
