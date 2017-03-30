@@ -75,7 +75,7 @@ function generateGallery($config)
         $result = createImage($filename, $config['thumbSize'], VIGNETTE_FOLDER. '/vignette_'.$index.'.jpg');
         if (isset($result['error'])){
             $errorMessage .= $result['error'];
-            $reloadDuration = 10 ;
+            $reloadDuration = 5 ;
             $config['failed'][] = $filename ;
         } else {
             list($width, $height) = getimagesize($filename);
@@ -156,9 +156,15 @@ function createImage($source, $size, $destination)
             break;
         case 6:
             $vignette = imagerotate($vignette, 270, 0);
+            $tmp = $newWidth;
+            $newWidth = $newHeight;
+            $newHeight = $tmp;
             break;
         case 8:
             $vignette = imagerotate($vignette, 90, 0);
+            $tmp = $newWidth;
+            $newWidth = $newHeight;
+            $newHeight = $tmp;
             break;
     }
     
@@ -446,6 +452,10 @@ div.icon {
 
 div.imageContainer {
     margin: 5px;
+    text-align: center;
+}
+div.imageContainer img {
+    margin: 0 auto;
 }
 
 div.imageContainer:hover div.icon {
